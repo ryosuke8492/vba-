@@ -6,6 +6,71 @@ Option Explicit
 '==============================================================
 
 ' ---------------------------------------------------------------
+' 日付文字列から末尾（終了）日付を抽出する
+'
+' 対応フォーマット：
+'   "7/22"         → 7/22
+'   " 7/22 "       → 7/22  （前後スペース除去）
+'   "7/22 - 23"    → 7/23  （終端が日だけ → 開始日の月を補完）
+'   "7/22-23"      → 7/23
+'   "7/22～7/23"   → 7/23
+'   "7/22~7/23"    → 7/23
+'
+' 戻り値：
+'   解析成功 → Date 型の終了日（年は実行時の年）
+'   解析失敗 → 0（= #1899/12/30#）を返す ※呼び出し元で IsError 等確認推奨
+' ---------------------------------------------------------------
+Public Function ExtractEndDate(ByVal input As String) As Date
+    ' ─── 変数宣言 ───────────────────────────────────────
+    Dim cleaned   As String  ' トリム済み入力文字列
+    Dim separator As String  ' 検出したセパレータ（～ / ~ / -）
+    Dim sepPos    As Long    ' セパレータの位置
+    Dim startPart As String  ' セパレータ左側（開始日）
+    Dim endPart   As String  ' セパレータ右側（終了日 or 日のみ）
+    Dim slashPos  As Long    ' startPart 内の "/" 位置
+    Dim monthStr  As String  ' 開始日から取り出した月文字列
+    ' ────────────────────────────────────────────────────
+
+    On Error GoTo ErrHandler
+
+    cleaned = Trim(input)
+
+    ' ── セパレータ検出（優先順位：～ > ~ > -）──────────
+    If InStr(cleaned, "～") > 0 Then
+        separator = "～"
+    ElseIf InStr(cleaned, "~") > 0 Then
+        separator = "~"
+    ElseIf InStr(cleaned, "-") > 0 Then
+        separator = "-"
+    Else
+        ' セパレータなし → そのまま日付として解析
+        ExtractEndDate = CDate(cleaned)
+        Exit Function
+    End If
+
+    ' ── 開始・終了に分割 ─────────────────────────────
+    sepPos    = InStr(cleaned, separator)
+    startPart = Trim(Left(cleaned, sepPos - 1))
+    endPart   = Trim(Mid(cleaned, sepPos + Len(separator)))
+
+    ' ── 終端が数字のみ（日だけ）なら月を補完 ──────────
+    ' 例："7/22 - 23" → endPart="23" → "7/23"
+    If IsNumeric(endPart) Then
+        slashPos = InStr(startPart, "/")
+        If slashPos > 0 Then
+            monthStr = Left(startPart, slashPos - 1)
+            endPart  = monthStr & "/" & endPart
+        End If
+    End If
+
+    ExtractEndDate = CDate(endPart)
+    Exit Function
+
+ErrHandler:
+    ExtractEndDate = 0  ' 解析失敗時は 0 を返す
+End Function
+
+' ---------------------------------------------------------------
 ' ユーティリティ関数：営業日加算（土日祝除外）
 '   baseDate  : 起算日
 '   n         : 加算営業日数
