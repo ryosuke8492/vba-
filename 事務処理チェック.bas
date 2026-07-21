@@ -102,18 +102,15 @@ End Sub
 ' メイン処理：ボタンから呼び出す
 ' ---------------------------------------------------------------
 Public Sub Main()
-    Dim ws As Worksheet
-    Dim lastRow As Long
-    Dim i As Long
-    Dim workDate As Date
-    Dim completionDate As Date
-    Dim deadline As Date
-    Dim resultCol As Long
-    Dim completionCell As Range
-    Dim resultCell As Range
+    ' ─── 変数宣言 ───────────────────────────────────────
+    Dim ws       As Worksheet  ' 処理対象シート
+    Dim lastRow  As Long       ' データ最終行
+    Dim i        As Long       ' 行ループカウンタ
+    Dim workDate As Date       ' 作業日（A列）
+    Dim holidays As Variant    ' 祝日リスト
+    ' ────────────────────────────────────────────────────
 
     ' 祝日リスト（必要に応じて追記・Sheet化も可）
-    Dim holidays As Variant
     holidays = Array("2025/1/1", "2025/1/13", "2025/2/11", _
                      "2025/2/23", "2025/3/20", "2025/4/29", _
                      "2025/5/3", "2025/5/4", "2025/5/5", _
@@ -210,18 +207,20 @@ End Sub
 ' 初回セットアップ用：別ボタンに割り当てる or 手動実行
 '==============================================================
 Public Sub SetupSheet()
-    Dim ws As Worksheet
+    ' ─── 変数宣言 ───────────────────────────────────────
+    Dim ws      As Worksheet  ' 処理対象シート
+    Dim headers As Variant    ' ヘッダー文字列配列
+    Dim col     As Long       ' 列ループカウンタ
+    ' ────────────────────────────────────────────────────
+
     Set ws = ThisWorkbook.Sheets("Sheet1")
 
-    ' ヘッダー
-    Dim headers As Variant
     headers = Array("作業日", _
                     "書類A完了日", "書類B完了日", "書類C完了日", "書類D完了日", _
                     "書類E完了日", "書類F完了日", "書類G完了日", "書類H完了日", _
                     "A結果(+1営業)", "B結果(+2営業)", "C結果(+3営業)", "D結果(+5営業)", _
                     "E結果(+7日)", "F結果(+14日)", "G結果(+30日)", "H結果(+60日)")
 
-    Dim col As Long
     For col = 1 To UBound(headers) + 1
         ws.Cells(1, col).Value = headers(col - 1)
         ws.Cells(1, col).Font.Bold = True
