@@ -71,6 +71,79 @@ ErrHandler:
 End Function
 
 ' ---------------------------------------------------------------
+' 日付文字列から末尾（終了）日付を抽出する（余計な文字列除去版）
+'
+' 正規表現（Regular Expression。文字列の「パターン」を表すミニ言語。
+' 例： \d は数字1文字、{1,2} は直前を1〜2回、| は「または」の意味）
+' を使って文字列中の数値パターン（n/n や n）だけを拾い出すため、
+' "open" "colse" のような日付以外の文字列が混ざっていても
+' 末尾の日付だけを取り出せる。
+'
+' 対応フォーマット例：
+'   "open7/1 - colse 7/3" → 7/3
+'   "7/22 - 23"           → 7/23  （終端が日だけ → 開始日の月を補完）
+'   "7/22～7/23"          → 7/23
+'   "7/22"                → 7/22
+'
+' 戻り値：
+'   解析成功 → Date 型の終了日（年は実行時の年）
+'   解析失敗 → 0（= #1899/12/30#）を返す
+' ---------------------------------------------------------------
+Public Function ExtractEndDateEx(ByVal input As String) As Date
+    ' ─── 変数宣言 ───────────────────────────────────────
+    Dim re       As Object  ' 正規表現エンジン本体（VBScript.RegExp オブジェクト）
+                             ' ※参照設定不要でCreateObjectだけで使える（遅延バインディング）
+    Dim mc       As Object  ' MatchCollection（マッチ結果の集合）の略。
+                             ' re.Execute(input) を実行すると、パターンに一致した
+                             ' 箇所が全部まとめて入ったコレクションが返ってくる。
+                             ' mc.Count       … 見つかった数
+                             ' mc(0), mc(1)…  … 1つ1つの一致（Matchオブジェクト）
+                             ' mc(i).Value    … その一致箇所の実際の文字列
+    Dim lastPart As String  ' 最後に見つかった数値部分（終了日候補）
+    Dim prevPart As String  ' 1つ前に見つかった数値部分（開始日候補）
+    Dim slashPos As Long    ' prevPart 内の "/" 位置
+    Dim monthStr As String  ' 開始日から取り出した月文字列
+    ' ────────────────────────────────────────────────────
+
+    On Error GoTo ErrHandler
+
+    Set re = CreateObject("VBScript.RegExp")  ' 正規表現エンジンを生成
+    re.Global = True                          ' True＝文字列全体を検索して全一致を集める
+                                               '（Falseだと最初の1件しか見つからない）
+    ' パターンの意味：
+    '   \d{1,2}/\d{1,2}  … "7/22" のような "数字/数字"（月/日）の形
+    '   |                … 「または」
+    '   \d{1,2}          … "23" のような数字だけの形（月が省略された終了日用）
+    re.Pattern = "\d{1,2}/\d{1,2}|\d{1,2}"
+
+    Set mc = re.Execute(input)  ' input 内でパターンに一致する箇所を全部検索してmcに格納
+
+    If mc.Count = 0 Then        ' 一致が1つもない＝日付らしき文字列が見つからなかった
+        ExtractEndDateEx = 0
+        Exit Function
+    End If
+
+    ' mc.Count - 1 が「最後に見つかった一致」のインデックス（0始まりのため）
+    lastPart = mc(mc.Count - 1).Value
+
+    ' ── 終端が数字のみ（日だけ）なら、直前のマッチから月を補完 ──
+    If InStr(lastPart, "/") = 0 And mc.Count >= 2 Then
+        prevPart = mc(mc.Count - 2).Value
+        slashPos = InStr(prevPart, "/")
+        If slashPos > 0 Then
+            monthStr = Left(prevPart, slashPos - 1)
+            lastPart = monthStr & "/" & lastPart
+        End If
+    End If
+
+    ExtractEndDateEx = CDate(lastPart)
+    Exit Function
+
+ErrHandler:
+    ExtractEndDateEx = 0  ' 解析失敗時は 0 を返す
+End Function
+
+' ---------------------------------------------------------------
 ' ユーティリティ関数：営業日加算（土日祝除外）
 '   baseDate  : 起算日
 '   n         : 加算営業日数
@@ -264,6 +337,41 @@ Private Sub CheckItem(srcCell As Range, dstCell As Range, deadline As Date)
     Else
         ' 期限超過 → 0
         Call WriteResult(dstCell, 0)
+    End If
+End Sub
+
+' ---------------------------------------------------------------
+' 1項目の判定＆書き込み（許容日数版）
+'   CheckItem が「targetDate 以前ならOK」なのに対し、こちらは
+'   「targetDate との差が toleranceDays 以内ならOK」という判定。
+'   toleranceDays を省略（＝0）すると、targetDate と完全に一致した
+'   日付のみOKになる（早すぎても遅すぎてもNG）。
+'
+'   srcCell       : 完了日が入力されているセル
+'   dstCell       : 結果（1/0/空白）を書くセル
+'   targetDate    : 基準日（この日 ±toleranceDays 以内ならOK）
+'   toleranceDays : 許容日数（省略時 0 ＝ 基準日ちょうどのみOK）
+' ---------------------------------------------------------------
+Private Sub CheckItemTolerance(srcCell As Range, dstCell As Range, _
+                                targetDate As Date, _
+                                Optional ByVal toleranceDays As Long = 0)
+    Dim diffDays As Long  ' 完了日と基準日の差（絶対値・日数）
+
+    If IsEmpty(srcCell) Or srcCell.Value = "" Then
+        ' 未入力 → 空白のまま
+        Call WriteResult(dstCell, -1)
+    ElseIf Not IsDate(srcCell.Value) Then
+        ' 日付として認識できない → 空白
+        Call WriteResult(dstCell, -1)
+    Else
+        diffDays = Abs(CDate(srcCell.Value) - targetDate)
+        If diffDays <= toleranceDays Then
+            ' 基準日 ±toleranceDays 以内 → 1
+            Call WriteResult(dstCell, 1)
+        Else
+            ' 許容範囲外（早すぎ／遅すぎ） → 0
+            Call WriteResult(dstCell, 0)
+        End If
     End If
 End Sub
 
