@@ -1,16 +1,22 @@
-# MUFG Rate Fetcher (VBA)
+# VBA勉強
 
-三菱UFJ銀行・三菱UFJリサーチ&コンサルティングの公開データから
-USD/EURのT.T.S.（電信売相場）を取得するExcel VBAマクロです。
+Excel VBAの学習用マクロ集です。
 
 ## ファイル
-- `Get1DayAgoRateToExcel.bas` : 1営業日前（土日祝はさらに遡る）のUSD/EUR TTSを取得し、
-  アクティブシートの A1:C2 に書き込みます。
+- `事務処理チェック.bas` : 作業日から各書類の提出期限（営業日／カレンダー日）を計算し、
+  提出済み日付が期限内かをシートに判定・書き込みするマクロ。
+  日付文字列の解析（`ExtractEndDate` / `ExtractEndDateEx`）や許容日数判定
+  （`CheckItemTolerance`）などのサンプルを含む。
+- `為替レート取得.bas` : USD/EURのT.T.S.（電信売相場）を取得しシートへ書き込むマクロ。
+  ①三菱UFJ銀行 公開CSV（本日レート）→ ②失敗時はMURC過去レートページの
+  HTMLスクレイピングにフォールバックする2段構成。
+- `テンプレート.bas` : 新規モジュールを書くときの雛形。Option Explicit、
+  定数定義、配列＋Initialize()による初期化、関数ごとの説明コメントなど、
+  このリポジトリで統一しているコーディングスタイルをまとめたもの。
+- `reference/` : 開発途中の版や、他マクロの実装を検討する際に参考にした
+  過去バージョンを保存している参考資料フォルダ（現行版ではない）。
 
 ## 使い方
 1. Excelで `Alt+F11` を押しVBEを開く
-2. 「ファイル」→「ファイルのインポート」で `Get1DayAgoRateToExcel.bas` を読み込む
-3. `Get1DayAgoRateToExcel` マクロを実行
-
-## データソース
-https://www.murc-kawasesouba.jp/fx/past_3month.php
+2. 「ファイル」→「ファイルのインポート」で対象の `.bas` を読み込む
+3. 各モジュールの `Main`（または該当マクロ名）を実行
