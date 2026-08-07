@@ -1,0 +1,346 @@
+Option Explicit
+
+'==============================================================
+' 事務処理日チェック VBA サンプル
+' ボタンから Main を呼び出す
+'==============================================================
+
+' ---------------------------------------------------------------
+' 日付文字列から末尾（終了）日付を抽出する
+'
+' 対応フォーマット：
+'   "7/22"         → 7/22
+'   " 7/22 "       → 7/22  （前後スペース除去）
+'   "7/22 - 23"    → 7/23  （終端が日だけ → 開始日の月を補完）
+'   "7/22-23"      → 7/23
+'   "7/22～7/23"   → 7/23
+'   "7/22~7/23"    → 7/23
+'
+' 戻り値：
+'   解析成功 → Date 型の終了日（年は実行時の年）
+'   解析失敗 → 0（= #1899/12/30#）を返す ※呼び出し元で IsError 等確認推奨
+' ---------------------------------------------------------------
+' 区切り文字の一覧（優先順位順）
+'   新しい区切り文字に対応したくなったら、ここに追記するだけでよい。
+'   例：全角カンマにも対応したい → Array("～", "~", "-", "、") のように追加
+Private Function GetSeparators() As Variant
+    GetSeparators = Array("～", "~", "-")
+End Function
+
+' input の中から、GetSeparators() の優先順位で最初に見つかった
+' 区切り文字を探す。見つからなければ空文字 "" を返す。
+Private Function FindSeparator(ByVal cleaned As String) As String
+    Dim seps As Variant  ' 区切り文字候補一覧
+    Dim i    As Long     ' 候補ループカウンタ
+
+    seps = GetSeparators()
+
+    For i = LBound(seps) To UBound(seps)
+        If InStr(cleaned, seps(i)) > 0 Then
+            FindSeparator = seps(i)
+            Exit Function
+        End If
+    Next i
+
+    FindSeparator = ""  ' 見つからなかった
+End Function
+
+Public Function ExtractEndDate(ByVal input As String) As Date
+    Dim cleaned   As String  ' トリム済み入力文字列
+    Dim separator As String  ' 検出したセパレータ（GetSeparators() 参照）
+    Dim sepPos    As Long    ' セパレータの位置
+    Dim startPart As String  ' セパレータ左側（開始日）
+    Dim endPart   As String  ' セパレータ右側（終了日 or 日のみ）
+    Dim slashPos  As Long    ' startPart 内の "/" 位置
+    Dim monthStr  As String  ' 開始日から取り出した月文字列
+
+    On Error GoTo ErrHandler
+
+    cleaned = Trim(input)
+
+    separator = FindSeparator(cleaned)
+
+    If separator = "" Then
+        ExtractEndDate = CDate(cleaned)
+        Exit Function
+    End If
+
+    sepPos    = InStr(cleaned, separator)
+    startPart = Trim(Left(cleaned, sepPos - 1))
+    endPart   = Trim(Mid(cleaned, sepPos + Len(separator)))
+
+    If IsNumeric(endPart) Then
+        slashPos = InStr(startPart, "/")
+        If slashPos > 0 Then
+            monthStr = Left(startPart, slashPos - 1)
+            endPart  = monthStr & "/" & endPart
+        End If
+    End If
+
+    ExtractEndDate = CDate(endPart)
+    Exit Function
+
+ErrHandler:
+    ExtractEndDate = 0  ' 解析失敗時は 0 を返す
+End Function
+
+' 対応する日付表記パターン一覧（正規表現の断片）
+'   新しい表記に対応したくなったら、ここに1つ追記するだけでよい。
+Private Function GetDatePatterns() As Variant
+    GetDatePatterns = Array( _
+        "\d{1,2}/\d{1,2}", _  ' 例："7/22"（月/日）
+        "\d{1,2}" _           ' 例："23"（日のみ。月省略時の終了日用）
+    )
+End Function
+
+Private Function BuildDatePattern() As String
+    BuildDatePattern = Join(GetDatePatterns(), "|")
+End Function
+
+Public Function ExtractEndDateEx(ByVal input As String) As Date
+    Dim re       As Object
+    Dim mc       As Object
+    Dim lastPart As String
+    Dim prevPart As String
+    Dim slashPos As Long
+    Dim monthStr As String
+
+    On Error GoTo ErrHandler
+
+    Set re = CreateObject("VBScript.RegExp")
+    re.Global = True
+    re.Pattern = BuildDatePattern()
+
+    Set mc = re.Execute(input)
+
+    If mc.Count = 0 Then
+        ExtractEndDateEx = 0
+        Exit Function
+    End If
+
+    lastPart = mc(mc.Count - 1).Value
+
+    If InStr(lastPart, "/") = 0 And mc.Count >= 2 Then
+        prevPart = mc(mc.Count - 2).Value
+        slashPos = InStr(prevPart, "/")
+        If slashPos > 0 Then
+            monthStr = Left(prevPart, slashPos - 1)
+            lastPart = monthStr & "/" & lastPart
+        End If
+    End If
+
+    ExtractEndDateEx = CDate(lastPart)
+    Exit Function
+
+Public Function AddBusinessDays(baseDate As Date, n As Long, _
+                                Optional holidays As Variant) As Date
+    Dim d As Date
+    Dim added As Long
+    Dim hasHolidays As Boolean
+
+    hasHolidays = Not IsMissing(holidays)
+    d = baseDate
+    added = 0
+
+    Do While added < n
+        d = d + 1
+        If Weekday(d, vbMonday) <= 5 Then
+            If hasHolidays Then
+                If Not IsHoliday(d, holidays) Then
+                    added = added + 1
+                End If
+            Else
+                added = added + 1
+            End If
+        End If
+    Loop
+
+    AddBusinessDays = d
+End Function
+
+Public Function AddCalendarDays(baseDate As Date, n As Long) As Date
+    AddCalendarDays = baseDate + n
+End Function
+
+Private Function IsHoliday(d As Date, holidays As Variant) As Boolean
+    Dim i As Long
+    For i = LBound(holidays) To UBound(holidays)
+        If d = CDate(holidays(i)) Then
+            IsHoliday = True
+            Exit Function
+        End If
+    Next i
+    IsHoliday = False
+End Function
+
+Private Sub WriteResult(cell As Range, result As Long)
+    Const COLOR_OK   As Long = &HC6EFCE
+    Const COLOR_NG   As Long = &HFFC7CE
+    Const COLOR_NONE As Long = &HFFFFFF
+
+    Select Case result
+        Case 1
+            cell.Value = 1
+            cell.Interior.Color = COLOR_OK
+        Case 0
+            cell.Value = 0
+            cell.Interior.Color = COLOR_NG
+        Case Else
+            cell.Value = ""
+            cell.Interior.Color = COLOR_NONE
+    End Select
+End Sub
+
+Private Enum DeadlineKind
+    Business = 0
+    Calendar = 1
+End Enum
+
+Private Type DocRule
+    SrcCol As Long
+    DstCol As Long
+    Kind   As DeadlineKind
+    N      As Long
+End Type
+
+Private Function GetDocRules() As DocRule()
+    Dim rules(1 To 8) As DocRule
+
+    rules(1) = MakeRule(2, 10, Business, 1)
+    rules(2) = MakeRule(3, 11, Business, 2)
+    rules(3) = MakeRule(4, 12, Business, 3)
+    rules(4) = MakeRule(5, 13, Business, 5)
+    rules(5) = MakeRule(6, 14, Calendar, 7)
+    rules(6) = MakeRule(7, 15, Calendar, 14)
+    rules(7) = MakeRule(8, 16, Calendar, 30)
+    rules(8) = MakeRule(9, 17, Calendar, 60)
+
+    GetDocRules = rules
+End Function
+
+Private Function MakeRule(srcCol As Long, dstCol As Long, _
+                           kind As DeadlineKind, n As Long) As DocRule
+    Dim r As DocRule
+    r.SrcCol = srcCol
+    r.DstCol = dstCol
+    r.Kind = kind
+    r.N = n
+    MakeRule = r
+End Function
+
+Private Function CalcDeadline(rule As DocRule, workDate As Date, _
+                               holidays As Variant) As Date
+    If rule.Kind = Business Then
+        CalcDeadline = AddBusinessDays(workDate, rule.N, holidays)
+    Else
+        CalcDeadline = AddCalendarDays(workDate, rule.N)
+    End If
+End Function
+
+Public Sub Main()
+    Dim ws       As Worksheet
+    Dim lastRow  As Long
+    Dim i        As Long
+    Dim r        As Long
+    Dim workDate As Date
+    Dim holidays As Variant
+    Dim rules()  As DocRule
+
+    holidays = Array("2025/1/1", "2025/1/13", "2025/2/11", _
+                     "2025/2/23", "2025/3/20", "2025/4/29", _
+                     "2025/5/3", "2025/5/4", "2025/5/5", _
+                     "2025/7/21", "2025/8/11", "2025/9/15", _
+                     "2025/9/23", "2025/10/13", "2025/11/3", _
+                     "2025/11/23")
+
+    rules = GetDocRules()
+
+    Set ws = ThisWorkbook.Sheets("Sheet1")
+
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+
+    Application.ScreenUpdating = False
+    Application.StatusBar = "処理中..."
+
+    For i = 2 To lastRow
+
+        If IsEmpty(ws.Cells(i, 1)) Or Not IsDate(ws.Cells(i, 1)) Then
+            GoTo NextRow
+        End If
+        workDate = CDate(ws.Cells(i, 1).Value)
+
+        For r = LBound(rules) To UBound(rules)
+            Call CheckItem(ws.Cells(i, rules(r).SrcCol), _
+                           ws.Cells(i, rules(r).DstCol), _
+                           CalcDeadline(rules(r), workDate, holidays))
+        Next r
+
+NextRow:
+    Next i
+
+    Application.ScreenUpdating = True
+    Application.StatusBar = False
+    MsgBox "チェック完了しました。", vbInformation
+
+End Sub
+
+Private Sub CheckItem(srcCell As Range, dstCell As Range, deadline As Date)
+    If IsEmpty(srcCell) Or srcCell.Value = "" Then
+        Call WriteResult(dstCell, -1)
+    ElseIf Not IsDate(srcCell.Value) Then
+        Call WriteResult(dstCell, -1)
+    ElseIf CDate(srcCell.Value) <= deadline Then
+        Call WriteResult(dstCell, 1)
+    Else
+        Call WriteResult(dstCell, 0)
+    End If
+End Sub
+
+Private Sub CheckItemTolerance(srcCell As Range, dstCell As Range, _
+                                targetDate As Date, _
+                                Optional ByVal toleranceDays As Long = 0)
+    Dim diffDays As Long
+
+    If IsEmpty(srcCell) Or srcCell.Value = "" Then
+        Call WriteResult(dstCell, -1)
+    ElseIf Not IsDate(srcCell.Value) Then
+        Call WriteResult(dstCell, -1)
+    Else
+        diffDays = Abs(CDate(srcCell.Value) - targetDate)
+        If diffDays <= toleranceDays Then
+            Call WriteResult(dstCell, 1)
+        Else
+            Call WriteResult(dstCell, 0)
+        End If
+    End If
+End Sub
+
+Public Sub SetupSheet()
+    Dim ws      As Worksheet
+    Dim headers As Variant
+    Dim col     As Long
+
+    Set ws = ThisWorkbook.Sheets("Sheet1")
+
+    headers = Array("作業日", _
+                    "書類A完了日", "書類B完了日", "書類C完了日", "書類D完了日", _
+                    "書類E完了日", "書類F完了日", "書類G完了日", "書類H完了日", _
+                    "A結果(+1営業)", "B結果(+2営業)", "C結果(+3営業)", "D結果(+5営業)", _
+                    "E結果(+7日)", "F結果(+14日)", "G結果(+30日)", "H結果(+60日)")
+
+    For col = 1 To UBound(headers) + 1
+        ws.Cells(1, col).Value = headers(col - 1)
+        ws.Cells(1, col).Font.Bold = True
+    Next col
+
+    ws.Range(ws.Cells(2, 10), ws.Cells(1000, 17)).NumberFormat = "0%"
+
+    ws.Columns("A:Q").AutoFit
+
+    MsgBox "シート初期設定完了。", vbInformation
+End Sub
+
+
+ErrHandler:
+    ExtractEndDateEx = 0
+End Function
