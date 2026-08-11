@@ -5,14 +5,29 @@ Option Explicit
 ' 概要　　　　：（このモジュールが何をするか1〜2行で）
 '
 ' 構成（C言語ソース風）：
-'   1. 定数定義（#define 相当）
+'   1. 列挙型・定数定義（enum / #define 相当）
 '   2. モジュールレベル変数（グローバル変数相当。配列はここで宣言だけし、
 '      実際の値は Initialize() でセットする）
 '   3. 関数一覧（プロトタイプ宣言相当。全体像を把握するための目次）
 '   4. Initialize（グローバル初期化。C の初期化処理相当）
 '   5. Main（エントリポイント。C の main() 相当。ボタンから呼び出す）
 '   6. 以降、個別の関数・サブルーチン（XML docコメント形式で説明を付与）
+'
+' コーディングルール：
+'   ・引数は ByVal / ByRef を必ず明示する
+'     （VBAは省略時ByRefになるため、値渡しのつもりが参照渡しになる事故を防ぐ）
+'   ・関連する定数の羅列は Const ではなく Enum でグループ化する
 '==============================================================
+
+'--------------------------------------------------------------
+' 列挙型定義（C言語の enum 相当）
+'   Enum メンバー名はプロジェクト全体でグローバルな名前空間を共有するため、
+'   他モジュールと衝突しないよう接頭辞（ここでは Tpl_）を付けて回避する。
+'--------------------------------------------------------------
+Public Enum ETplResult
+    Tpl_ResultOK = 0  ' 正常終了
+    Tpl_ResultNG = 1  ' 異常終了（値なし等）
+End Enum
 
 '--------------------------------------------------------------
 ' 定数定義
@@ -30,9 +45,10 @@ Private mIsInitialized  As Boolean  ' 初期化済みフラグ（多重初期化
 
 '--------------------------------------------------------------
 ' 関数一覧（この一覧を見れば全体像がわかるようにする）
-'   Initialize     : モジュール変数・配列を初期化する
-'   Main           : エントリポイント。ボタンから呼び出す
-'   SampleFunction : （役割を一言で）
+'   Initialize        : モジュール変数・配列を初期化する
+'   Main              : エントリポイント。ボタンから呼び出す
+'   SampleFunction    : 値の妥当性を判定する（ByVal引数の例）
+'   FillSampleValues  : 呼び出し元の配列に値を詰める（ByRef引数の例）
 '--------------------------------------------------------------
 
 ''' <summary>
@@ -51,24 +67,36 @@ End Sub
 ''' エントリポイント。ボタン等から呼び出す想定。
 ''' </summary>
 Public Sub Main()
+    ' ─── 変数宣言 ───────────────────────────────────────
+    Dim status As ETplResult  ' SampleFunction の判定結果
+    Dim values() As Variant   ' FillSampleValues で受け取る配列
+    ' ────────────────────────────────────────────────────
+
     Call Initialize
 
     ' ─── ここから処理 ─────────────────────────────
-    Call SampleFunction(mSampleArray(0))
+    status = SampleFunction(CStr(mSampleArray(0)))
+    Call FillSampleValues(values)
     ' ────────────────────────────────────────────
 End Sub
 
 ''' <summary>
-''' （関数の役割を1〜2行で）
+''' 引数の妥当性を判定する（ByVal = 値渡し。呼び出し元の変数は変更されない）
 ''' </summary>
-''' <param name="value">（引数の説明）</param>
-''' <returns>（戻り値の説明。Subの場合はこの行を削除する）</returns>
-Private Function SampleFunction(ByVal value As String) As Boolean
-    ' ─── 変数宣言 ───────────────────────────────────────
-    Dim result As Boolean  ' 戻り値用フラグ
-    ' ────────────────────────────────────────────────────
-
-    result = (Len(value) > 0)
-
-    SampleFunction = result
+''' <param name="value">ByVal: 判定対象の文字列（呼び出し元にはコピーが渡る）</param>
+''' <returns>Tpl_ResultOK / Tpl_ResultNG</returns>
+Private Function SampleFunction(ByVal value As String) As ETplResult
+    If Len(value) > 0 Then
+        SampleFunction = Tpl_ResultOK
+    Else
+        SampleFunction = Tpl_ResultNG
+    End If
 End Function
+
+''' <summary>
+''' 呼び出し元の配列に値を詰める（ByRef = 参照渡し。呼び出し元の変数が書き換わる）
+''' </summary>
+''' <param name="outValues">ByRef: 結果を書き込む配列（呼び出し元でDimしたものを渡す）</param>
+Private Sub FillSampleValues(ByRef outValues() As Variant)
+    outValues = mSampleArray
+End Sub
