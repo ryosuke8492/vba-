@@ -6,7 +6,7 @@ Sub 転記処理()
     Dim targetHeaders() As Variant
     Dim dataHeaderRow As Long, formatHeaderRow As Long
     Dim dataStartRow As Long, formatStartRow As Long
-    Dim lastRowData As Long
+    Dim lastRowData As Long, lastColData As Long
     Dim i As Long, j As Long
     Dim colData As Long, colFormat As Long
     Dim headerName As String
@@ -20,41 +20,65 @@ Sub 転記処理()
     dataStartRow = 2       ' データシートの取得開始行(ヘッダー以降)
     formatStartRow = 2     ' フォーマットシートの貼り付け開始行
 
-    ' 転記したいヘッダーをとりあえず3つ指定
+    ' ここまでの列はヘッダー名で一致させて転記(とりあえず3つ)
     targetHeaders = Array("項目A", "項目B", "項目C")
+
+    ' データ側:ヘッダーマッチング対象は何列目まで
+    Dim dataHeaderMatchLastCol As Long
+    dataHeaderMatchLastCol = 3   ' 例:データのA〜C列まではヘッダー一致
+
+    ' データ側:直接コピー開始列(ヘッダーマッチング対象の次から)
+    Dim dataDirectCopyStartCol As Long
+    dataDirectCopyStartCol = dataHeaderMatchLastCol + 1
+
+    ' フォーマット側:直接コピーを貼り付け始める列
+    Dim formatDirectCopyStartCol As Long
+    formatDirectCopyStartCol = 5   ' 例:フォーマットのE列以降にそのまま貼る
 
     '=== フォーマットシートをコピーして新シート作成 ===
     wsFormat.Copy After:=wsFormat
     Set wsNew = ActiveSheet
     wsNew.Name = "フォーマット_" & Format(Now, "yyyymmdd_hhnnss")
 
-    '=== データの最終行を取得 ===
+    '=== データの最終行・最終列を取得 ===
     lastRowData = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
+    lastColData = wsData.Cells(dataHeaderRow, wsData.Columns.Count).End(xlToLeft).Column
 
-    '=== ヘッダーごとにマッピングして転記 ===
-    For i = LBound(targetHeaders) To UBound(targetHeaders)
-        headerName = targetHeaders(i)
+    '=== 行ごとに処理 ===
+    For j = dataStartRow To lastRowData
 
-        colData = FindHeaderColumn(wsData, dataHeaderRow, headerName)
-        colFormat = FindHeaderColumn(wsNew, formatHeaderRow, headerName)
+        '--- 前半:ヘッダー名一致で転記 ---
+        For i = LBound(targetHeaders) To UBound(targetHeaders)
+            headerName = targetHeaders(i)
 
-        If colData = 0 Then
-            MsgBox "データシートにヘッダー『" & headerName & "』が見つかりません", vbExclamation
-            GoTo NextHeader
-        End If
-        If colFormat = 0 Then
-            MsgBox "フォーマットシートにヘッダー『" & headerName & "』が見つかりません", vbExclamation
-            GoTo NextHeader
-        End If
+            colData = FindHeaderColumn(wsData, dataHeaderRow, headerName)
+            colFormat = FindHeaderColumn(wsNew, formatHeaderRow, headerName)
 
-        ' データを1行ずつ転記(まとめてコピーしたい場合は下のコメント参照)
-        For j = dataStartRow To lastRowData
+            If colData = 0 Then
+                MsgBox "データシートにヘッダー『" & headerName & "』が見つかりません", vbExclamation
+                GoTo NextHeader
+            End If
+            If colFormat = 0 Then
+                MsgBox "フォーマットシートにヘッダー『" & headerName & "』が見つかりません", vbExclamation
+                GoTo NextHeader
+            End If
+
             wsNew.Cells(formatStartRow + (j - dataStartRow), colFormat).Value = _
                 wsData.Cells(j, colData).Value
-        Next j
 
 NextHeader:
-    Next i
+        Next i
+
+        '--- 後半:指定列以降はそのまま位置コピー ---
+        Dim offset As Long
+        offset = 0
+        For colData = dataDirectCopyStartCol To lastColData
+            wsNew.Cells(formatStartRow + (j - dataStartRow), formatDirectCopyStartCol + offset).Value = _
+                wsData.Cells(j, colData).Value
+            offset = offset + 1
+        Next colData
+
+    Next j
 
     MsgBox "転記が完了しました:" & wsNew.Name, vbInformation
 
